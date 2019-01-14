@@ -1,0 +1,31 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres:9.6
+    restart: on-failure
+    environment:
+      - POSTGRES_USER=${DBUSER}
+      - POSTGRES_PASSWORD=${DBPASS}
+      - POSTGRES_DB=${DBNAME}
+    ports:
+      - "54321:5432"
+    container_name: runestone_server_postgres
+  web:
+    build:
+        context: .
+        dockerfile: Dockerfile
+        args:
+            - LOCALHOST_DEV=1
+    command: bash -c "./dockerstart.sh"
+    volumes:
+      - .:/code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    environment:
+      - LOCALHOST_DEV=1
+    container_name: runestone_server
