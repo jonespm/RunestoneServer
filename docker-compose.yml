@@ -19,7 +19,8 @@ services:
             - LOCALHOST_DEV=1
     command: bash -c "./dockerstart.sh"
     volumes:
-      - .:/code
+      - ./databases:/usr/src/app/web2py/applications/runestone/databases
+      - ./private:/usr/src/app/web2py/applications/runestone/private
     ports:
       - "8000:8000"
     depends_on:
