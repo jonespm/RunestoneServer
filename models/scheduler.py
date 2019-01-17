@@ -12,6 +12,7 @@ from pkg_resources import resource_string, resource_filename
 rslogger = logging.getLogger(settings.sched_logger)
 rslogger.setLevel(settings.log_level)
 
+scheduler = Scheduler(db, migrate='runestone_')
 
 ################
 ## This task will run as a scheduled task using the web2py scheduler.
@@ -141,4 +142,23 @@ def makePavement(http_host, rvars, sourcedir, base_course):
     with open(path.join(sourcedir, 'pavement.py'), 'w') as fp:
         fp.write(paver_stuff)
 
-scheduler = Scheduler(db, migrate='runestone_')
+# This task is scheduled here to run every 5 minutes
+def send_events_to_caliper():
+    rslogger.info("Starting to process events")
+    # Number of events processed
+    ecount = 0
+    # Get last runtime of this method 
+    # It looks like this is stored in scheduler_task in last_run_time so we don't have to store it again
+    # Just have to figure out how best to retrieve it 
+
+    completed_runs = db(db.scheduler_task.status == 'COMPLETED' & db.scheduler_task.task_name == "send_events_to_caliper").select()
+    rslogger.info(completed_runs)
+
+    # Now that we have the latest run, Get all events from db.useinfo since last runtime based on timestamp
+
+    # Loop though and process the events that we can and send them to caliper, also count the number of records we process
+    
+    rslogger.info("Event processing completed, processed {} events".format(ecount))
+
+# Period set to 60 for testing, this should be configurable and a lot longer
+scheduler.queue_task(send_events_to_caliper, period=60, repeats=0)
