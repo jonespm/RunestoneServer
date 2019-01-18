@@ -151,8 +151,13 @@ def send_events_to_caliper():
     # It looks like this is stored in scheduler_task in last_run_time so we don't have to store it again
     # Just have to figure out how best to retrieve it 
 
-    completed_runs = db(db.scheduler_task.status == 'COMPLETED' & db.scheduler_task.task_name == "send_events_to_caliper").select()
-    rslogger.info(completed_runs)
+    try: 
+        completed_runs = db(
+            (db.scheduler_task.status == 'COMPLETED') & (db.scheduler_task.task_name == 'send_events_to_caliper')
+            ).select(db.scheduler_task.last_run_time, orderby=db.scheduler_task.last_run_time).last()
+        rslogger.info(completed_runs)
+    except:
+        rslogger.exception("Exception running db query")
 
     # Now that we have the latest run, Get all events from db.useinfo since last runtime based on timestamp
 
