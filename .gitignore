@@ -57,3 +57,7 @@ tests/test_book/build_info
 AC_scripts
 Pipfile.lock
 .env
+/python-caliper-tester/
+/caliper-python/
+/cron/
+/venv/
