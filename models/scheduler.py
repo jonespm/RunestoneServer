@@ -151,28 +151,25 @@ def send_events_to_caliper():
     # It looks like this is stored in scheduler_task in last_run_time so we don't have to store it again
     try: 
         completed_runs = db(
-            (db.scheduler_task.status == 'COMPLETED') & (db.scheduler_task.task_name == 'send_events_to_caliper')
-            ).select(db.scheduler_task.last_run_time, orderby=~db.scheduler_task.last_run_time).first()
+            (db.scheduler_run.task_id == db.scheduler_task.id) & 
+            (db.scheduler_run.status == 'COMPLETED') & 
+            (db.scheduler_task.task_name == 'send_events_to_caliper')
+            ).select(db.scheduler_run.start_time, orderby=~db.scheduler_run.id).first()
         # If completed_runs is stil none, this was first run ever, just don't do anything but exit so this run gets a timestamp
         rslogger.info(completed_runs)
         if completed_runs is None:
-            rslogger.info("No runs found, returning")
+            return "No runs found yet, returning"
             # Reschedule this job to run again
-            scheduler.queue_task("send_events_to_caliper", period=30, repeats=1)
-            return
         # Now that we have the latest run, Get all events from db.useinfo since last runtime based on timestamp
 
         # Loop though and process the events that we can and send them to caliper, also count the number of records we process
         
-        rslogger.info("Event processing completed, processed {} events".format(ecount))
-        # Reschedule this job to run again
-        scheduler.queue_task("send_events_to_caliper", period=30, repeats=1)
+        return "Event processing completed, processed {} events".format(ecount)
     except:
         rslogger.exception("Exception running send_events_to_caliper job")
         raise
 
-# Clean up all the old events for this task?
-# Maybe we want to save one to use that date if it exists?
-db((db.scheduler_task.task_name == 'send_events_to_caliper') & (db.scheduler_task.status == 'COMPLETED')).delete()
-# Period set to 60 for testing, this should be configurable and a lot longer
-scheduler.queue_task("send_events_to_caliper", period=30, repeats=1)
+# Close off the old task
+db(db.scheduler_task.task_name == 'send_events_to_caliper' & db.scheduler_task.status == 'QUEUED').update(status = 'COMPLETED')
+# Queue up a new task
+scheduler.queue_task("send_events_to_caliper", period=30, repeats=0)
