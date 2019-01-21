@@ -38,7 +38,7 @@ settings.logger = "web2py.app.runestone"
 if config == "production":
     settings.database_uri = environ["DBURL"]
     settings.sched_logger = settings.logger  # works for production where sending log to syslog but not for dev.
-    settings.log_level = logging.WARNING
+    settings.log_level = logging.INFO
 elif config == "development":
     settings.database_uri = environ.get("DEV_DBURL")
     settings.sched_logger = "web2py.app.scheduler"

@@ -9,6 +9,11 @@ from paver.easy import sh
 import logging
 from pkg_resources import resource_string, resource_filename
 
+import caliper
+import requests, json, sys
+
+from datetime import datetime
+
 rslogger = logging.getLogger(settings.sched_logger)
 rslogger.setLevel(settings.log_level)
 
@@ -146,6 +151,7 @@ def makePavement(http_host, rvars, sourcedir, base_course):
 def send_events_to_caliper():
     rslogger.info("Starting to process events")
     # Number of events processed
+
     ecount = 0
     # Get last runtime of this method 
     # It looks like this is stored in scheduler_task in last_run_time so we don't have to store it again
@@ -153,17 +159,101 @@ def send_events_to_caliper():
 
     try: 
         completed_runs = db(
-            (db.scheduler_task.status == 'COMPLETED') & (db.scheduler_task.task_name == 'send_events_to_caliper')
+            (db.scheduler_task.status == 'RUNNING') & (db.scheduler_task.task_name == 'send_events_to_caliper')
             ).select(db.scheduler_task.last_run_time, orderby=db.scheduler_task.last_run_time).last()
         rslogger.info(completed_runs)
     except:
         rslogger.exception("Exception running db query")
 
+    # print(completed_runs)
+
     # Now that we have the latest run, Get all events from db.useinfo since last runtime based on timestamp
+    from datetime import datetime, date, time
+    d = date(2019, 1, 18)
+    t = time(14, 30)
+    test_time = datetime.combine(d, t)
+    # test_time = datetime(2019, 1, 18, 15, 46, 26)
+
+    events = db(
+        (db.useinfo.timestamp > test_time)
+    ).select()
+
+    # rslogger.info(events)
 
     # Loop though and process the events that we can and send them to caliper, also count the number of records we process
-    
+    for event in events:
+        rslogger.info(event.sid)
+        actor = caliper.entities.Person(id=event.sid)
+        organization = caliper.entities.Organization(id="test_org")
+        edApp = caliper.entities.SoftwareApplication(id=event.course_id)
+        # target = caliper.entities.Frame(id="event.div_id")
+        resource = caliper.entities.DigitalResource(id="event.div_id")
+
+        caliper_sender(actor, organization, edApp, resource)
+
     rslogger.info("Event processing completed, processed {} events".format(ecount))
 
+def caliper_sender(actor, organization, edApp, resource):
+    is_openlrw = False
+    lrw_server = "http://lti.tools"
+    lrw_endpoint = lrw_server + "/caliper/event?key=python-caliper"
+
+    # Get these from your LRW (if necessary)
+
+    token = "python-caliper"
+
+    if (is_openlrw):
+        auth_data = {'username':'a601fd34-9f86-49ad-81dd-2b83dbee522b', 'password':'e4dff262-1583-4974-8d21-bff043db34d5'}
+        r = requests.post(lrw_access, json = auth_data, headers={'X-Requested-With': 'XMLHttpRequest'})
+        token = r.json().get('token')
+
+    the_config = caliper.HttpOptions(
+        host=lrw_endpoint,
+        auth_scheme='Bearer',
+        api_key=token)
+
+    # Here you build your sensor; it will have one client in its registry,
+    # with the key 'default'.
+    the_sensor = caliper.build_sensor_from_config(
+            sensor_id = lrw_server + "/test_caliper",
+            config_options = the_config )
+
+    # actor = caliper.entities.Person(id="test")
+    # organization = caliper.entities.Organization(id="test")
+    # edApp = caliper.entities.SoftwareApplication(id="test")
+    # resource = caliper.entities.DigitalResource(id="test")
+
+    the_event = caliper.events.NavigationEvent(
+        actor = actor,
+        edApp = edApp,
+        group = organization,
+        object = resource,
+        eventTime = datetime.now().isoformat(),
+        action = "NavigatedTo"
+        )
+
+    # Once built, you can use your sensor to describe one or more often used
+    # entities; suppose for example, you'll be sending a number of events
+    # that all have the same actor
+
+    ret = the_sensor.describe(the_event.actor)
+
+    # print (the_event)
+    # The return structure from the sensor will be a dictionary of lists: each
+    # item in the dictionary has a key corresponding to a client key,
+    # so ret['default'] fetches back the list of URIs of all the @ids of
+    # the fully described Caliper objects you have sent with that describe call.
+    #
+    # Now you can use this list with event sendings to send only the identifiers
+    # of already-described entities, and not their full forms:
+    #print(the_sensor.send(the_event, described_objects=ret['default'])
+
+    # You can also just send the event in its full form, with all fleshed out
+    # entities:
+    # print(the_sensor.send(the_event))
+
+    rslogger.info(the_event)
+
+    rslogger.info ("Event sent!")
 # Period set to 60 for testing, this should be configurable and a lot longer
 scheduler.queue_task(send_events_to_caliper, period=60, repeats=0)
