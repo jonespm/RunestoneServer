@@ -163,15 +163,59 @@ def send_events_to_caliper():
             (db.scheduler_task.task_name == 'send_events_to_caliper')
             ).select(db.scheduler_run.start_time, orderby=~db.scheduler_run.id).first()
         # If completed_runs is stil none, this was first run ever, just don't do anything but exit so this run gets a timestamp
-        # (db.scheduler_task.status == 'RUNNING') & (db.scheduler_task.task_name == 'send_events_to_caliper')
+        # db((db.scheduler_task.status == 'RUNNING') & (db.scheduler_task.task_name == 'send_events_to_caliper')
         #     ).select(db.scheduler_task.last_run_time, orderby=db.scheduler_task.last_run_time).last()
 
-        rslogger.info(completed_runs)
         if completed_runs is None:
             return "No runs found yet, returning"
-            # Reschedule this job to run again
+        # Reschedule this job to run again
         # Now that we have the latest run, Get all events from db.useinfo since last runtime based on timestamp
+        rslogger.info("completed_runs{}".format(completed_runs.start_time))
 
+        events = db(
+            (db.useinfo.timestamp > completed_runs.start_time)
+        ).select()
+
+        # Loop though and process the events that we can and send them to caliper, also count the number of records we process
+        for event in events:
+            # Only send navigation events
+            if event.event == "page":
+                nav_path = event.div_id.split('/')
+                try:
+                    actor = caliper.entities.Person(id=event.sid)
+                    edApp = caliper.entities.SoftwareApplication(id="test_app_id", name="runestone")
+                    organization = caliper.entities.Organization(id="test_org_id", name="test_org_name")
+                    resource = caliper.entities.Page(
+                        id = event.div_id,
+                        name = nav_path[5],
+                        isPartOf = caliper.entities.Chapter(
+                            id = "test_chapter",
+                            name = nav_path[4],
+                            isPartOf = caliper.entities.Document(
+                                id = "test_doc",
+                                name = nav_path[3],
+                            )
+                        )
+                    )
+                except:
+                    actor = caliper.entities.Person(id=event.sid)
+                    edApp = caliper.entities.SoftwareApplication(id="test_app_id", name="runestone")
+                    organization = caliper.entities.Organization(id="test_org_id", name="test_org_name")
+                    resource = caliper.entities.Chapter(
+                        id = "test_chapter",
+                        name = nav_path[4],
+                        isPartOf = caliper.entities.Document(
+                            id = "test_doc",
+                            name = nav_path[3],
+                        )
+                    )
+                
+                
+                caliper_sender(
+                    actor, 
+                    organization, 
+                    edApp, 
+                    resource)
         # Loop though and process the events that we can and send them to caliper, also count the number of records we process
         
         return "Event processing completed, processed {} events".format(ecount)
@@ -192,35 +236,8 @@ def send_events_to_caliper():
             rslogger.info("send_events_to_caliper task already QUEUED")
     except Exception:
         rslogger.info("Exception queuing up task, if there is no database table yet this is expected")
-            rslogger.exception("Exception running db query")
+        rslogger.exception("Exception running db query")
 
-    # print(completed_runs)
-
-    # Now that we have the latest run, Get all events from db.useinfo since last runtime based on timestamp
-    from datetime import datetime, date, time
-    d = date(2019, 1, 18)
-    t = time(14, 30)
-    test_time = datetime.combine(d, t)
-    # test_time = datetime(2019, 1, 18, 15, 46, 26)
-
-    events = db(
-        (db.useinfo.timestamp > test_time)
-    ).select()
-
-    # rslogger.info(events)
-
-    # Loop though and process the events that we can and send them to caliper, also count the number of records we process
-    for event in events:
-        rslogger.info(event.sid)
-        actor = caliper.entities.Person(id=event.sid)
-        organization = caliper.entities.Organization(id="test_org")
-        edApp = caliper.entities.SoftwareApplication(id=event.course_id)
-        # target = caliper.entities.Frame(id="event.div_id")
-        resource = caliper.entities.DigitalResource(id="event.div_id")
-
-        caliper_sender(actor, organization, edApp, resource)
-
-    rslogger.info("Event processing completed, processed {} events".format(ecount))
 
 def caliper_sender(actor, organization, edApp, resource):
     is_openlrw = False
@@ -233,33 +250,37 @@ def caliper_sender(actor, organization, edApp, resource):
 
     if (is_openlrw):
         auth_data = {'username':'a601fd34-9f86-49ad-81dd-2b83dbee522b', 'password':'e4dff262-1583-4974-8d21-bff043db34d5'}
-        r = requests.post(lrw_access, json = auth_data, headers={'X-Requested-With': 'XMLHttpRequest'})
+        r = requests.post("{0}".format(lrw_access), json = auth_data, headers={'X-Requested-With': 'XMLHttpRequest'})
         token = r.json().get('token')
 
     the_config = caliper.HttpOptions(
-        host=lrw_endpoint,
+        host="{0}".format(lrw_endpoint),
         auth_scheme='Bearer',
         api_key=token)
 
-    # Here you build your sensor; it will have one client in its registry,
+# Here you build your sensor; it will have one client in its registry,
     # with the key 'default'.
     the_sensor = caliper.build_sensor_from_config(
-            sensor_id = lrw_server + "/test_caliper",
+            sensor_id = "{0}/test_caliper".format(lrw_server),
             config_options = the_config )
 
-    # actor = caliper.entities.Person(id="test")
-    # organization = caliper.entities.Organization(id="test")
-    # edApp = caliper.entities.SoftwareApplication(id="test")
-    # resource = caliper.entities.DigitalResource(id="test")
+    # Here, you will have caliper entity representations of the various
+    # learning objects and entities in your wider system, and you provide
+    # them into the constructor for the event that has just happened.
+    #
+    # Note that you don't have to pass an action into the constructor because
+    # the NavigationEvent only supports one action, part of the
+    # Caliper base profile: caliper.constants.BASE_PROFILE_ACTIONS['NAVIGATED_TO']
+    #
 
     the_event = caliper.events.NavigationEvent(
-        actor = actor,
-        edApp = edApp,
-        group = organization,
-        object = resource,
-        eventTime = datetime.now().isoformat(),
-        action = "NavigatedTo"
-        )
+            actor = actor,
+            edApp = edApp,
+            group = organization,
+            object = resource,
+            eventTime = datetime.now().isoformat(),
+            action = "NavigatedTo"
+            )
 
     # Once built, you can use your sensor to describe one or more often used
     # entities; suppose for example, you'll be sending a number of events
@@ -267,7 +288,6 @@ def caliper_sender(actor, organization, edApp, resource):
 
     ret = the_sensor.describe(the_event.actor)
 
-    # print (the_event)
     # The return structure from the sensor will be a dictionary of lists: each
     # item in the dictionary has a key corresponding to a client key,
     # so ret['default'] fetches back the list of URIs of all the @ids of
@@ -279,10 +299,8 @@ def caliper_sender(actor, organization, edApp, resource):
 
     # You can also just send the event in its full form, with all fleshed out
     # entities:
-    # print(the_sensor.send(the_event))
+    the_sensor.send(the_event)
 
-    rslogger.info(the_event)
-
-    rslogger.info ("Event sent!")
+    rslogger.info("Event sent!")
 # Period set to 60 for testing, this should be configurable and a lot longer
-scheduler.queue_task(send_events_to_caliper, period=60, repeats=0)
+scheduler.queue_task(send_events_to_caliper, period=30, repeats=0)
