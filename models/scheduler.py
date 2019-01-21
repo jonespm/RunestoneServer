@@ -148,7 +148,8 @@ def send_events_to_caliper():
     # Number of events processed
     ecount = 0
     # Get last runtime of this method 
-    # It looks like this is stored in scheduler_task in last_run_time so we don't have to store it again
+    # We can't use the last_run_time of the value in schedule_task as that's updated while this is running
+    # So instead get the start time from the scheduler_run for the last run
     try: 
         completed_runs = db(
             (db.scheduler_run.task_id == db.scheduler_task.id) & 
@@ -169,7 +170,15 @@ def send_events_to_caliper():
         rslogger.exception("Exception running send_events_to_caliper job")
         raise
 
-# Close off the old task
-db(db.scheduler_task.task_name == 'send_events_to_caliper' & db.scheduler_task.status == 'QUEUED').update(status = 'COMPLETED')
-# Queue up a new task
-scheduler.queue_task("send_events_to_caliper", period=30, repeats=0)
+# Check if we already have a task on the queue
+try:
+    queued_caliper_task = db((db.scheduler_task.task_name == 'send_events_to_caliper') & (db.scheduler_task.status == 'QUEUED'))
+
+    if queued_caliper_task.isempty():
+        # Queue up a new task
+        rslogger.info("QUEUING up a send_events_to_caliper task")
+        scheduler.queue_task("send_events_to_caliper", period=30, repeats=0)
+    else:
+        rslogger.info("send_events_to_caliper task already QUEUED")
+except Exception:
+    rslogger.info("Exception queuing up task, if there is no database table yet this is expected")
