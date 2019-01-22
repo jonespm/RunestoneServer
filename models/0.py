@@ -33,12 +33,20 @@ settings.server_type = "http://"
 # Do not control this with hostnames
 config = environ.get("WEB2PY_CONFIG", "NOT SET")
 
+settings.logger = "web2py.app.runestone"
+
 if config == "production":
     settings.database_uri = environ["DBURL"]
+    settings.sched_logger = settings.logger  # works for production where sending log to syslog but not for dev.
+    settings.log_level = logging.INFO
 elif config == "development":
     settings.database_uri = environ.get("DEV_DBURL")
+    settings.sched_logger = "web2py.app.scheduler"
+    settings.log_level = logging.INFO
 elif config == "test":
     settings.database_uri = environ.get("TEST_DBURL")
+    settings.sched_logger = "web2py.app.scheduler"
+    settings.log_level = logging.INFO
 else:
     print("To configure web2py you should set up both WEB2PY_CONFIG and")
     print("XXX_DBURL values in your environment -- See README for more detail")
@@ -46,8 +54,3 @@ else:
 
 # Just for compatibility -- many things use postgresql but web2py removes the ql
 settings.database_uri = settings.database_uri.replace('postgresql://', 'postgres://')
-
-
-settings.logger = "web2py.app.runestone"
-settings.sched_logger = settings.logger  # works for production where sending log to syslog but not for dev.
-settings.log_level = logging.WARNING

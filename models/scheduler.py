@@ -9,9 +9,15 @@ from paver.easy import sh
 import logging
 from pkg_resources import resource_string, resource_filename
 
+import caliper
+import requests, json, sys
+
+from datetime import datetime
+
 rslogger = logging.getLogger(settings.sched_logger)
 rslogger.setLevel(settings.log_level)
 
+scheduler = Scheduler(db, migrate='runestone_')
 
 ################
 ## This task will run as a scheduled task using the web2py scheduler.
@@ -141,4 +147,160 @@ def makePavement(http_host, rvars, sourcedir, base_course):
     with open(path.join(sourcedir, 'pavement.py'), 'w') as fp:
         fp.write(paver_stuff)
 
-scheduler = Scheduler(db, migrate='runestone_')
+# This task is scheduled here to run every 5 minutes
+def send_events_to_caliper():
+    rslogger.info("Starting to process events")
+    # Number of events processed
+
+    ecount = 0
+    # Get last runtime of this method 
+    # We can't use the last_run_time of the value in schedule_task as that's updated while this is running
+    # So instead get the start time from the scheduler_run for the last run
+    try: 
+        completed_runs = db(
+            (db.scheduler_run.task_id == db.scheduler_task.id) & 
+            (db.scheduler_run.status == 'COMPLETED') & 
+            (db.scheduler_task.task_name == 'send_events_to_caliper')
+            ).select(db.scheduler_run.start_time, orderby=~db.scheduler_run.id).first()
+        # If completed_runs is stil none, this was first run ever, just don't do anything but exit so this run gets a timestamp
+        # db((db.scheduler_task.status == 'RUNNING') & (db.scheduler_task.task_name == 'send_events_to_caliper')
+        #     ).select(db.scheduler_task.last_run_time, orderby=db.scheduler_task.last_run_time).last()
+
+        if completed_runs is None:
+            return "No runs found yet, returning"
+        # Reschedule this job to run again
+        # Now that we have the latest run, Get all events from db.useinfo since last runtime based on timestamp
+        rslogger.info("completed_runs{}".format(completed_runs.start_time))
+
+        events = db(
+            (db.useinfo.timestamp > completed_runs.start_time)
+        ).select()
+
+        # Loop though and process the events that we can and send them to caliper, also count the number of records we process
+        for event in events:
+            # Only send navigation events
+            if event.event == "page":
+                nav_path = event.div_id.split('/')
+                try:
+                    actor = caliper.entities.Person(id=event.sid)
+                    edApp = caliper.entities.SoftwareApplication(id="test_app_id", name="runestone")
+                    organization = caliper.entities.Organization(id="test_org_id", name="test_org_name")
+                    resource = caliper.entities.Page(
+                        id = event.div_id,
+                        name = nav_path[5],
+                        isPartOf = caliper.entities.Chapter(
+                            id = "test_chapter",
+                            name = nav_path[4],
+                            isPartOf = caliper.entities.Document(
+                                id = "test_doc",
+                                name = nav_path[3],
+                            )
+                        )
+                    )
+                except:
+                    actor = caliper.entities.Person(id=event.sid)
+                    edApp = caliper.entities.SoftwareApplication(id="test_app_id", name="runestone")
+                    organization = caliper.entities.Organization(id="test_org_id", name="test_org_name")
+                    resource = caliper.entities.Chapter(
+                        id = "test_chapter",
+                        name = nav_path[4],
+                        isPartOf = caliper.entities.Document(
+                            id = "test_doc",
+                            name = nav_path[3],
+                        )
+                    )
+                
+                
+                caliper_sender(
+                    actor, 
+                    organization, 
+                    edApp, 
+                    resource)
+        # Loop though and process the events that we can and send them to caliper, also count the number of records we process
+        
+        return "Event processing completed, processed {} events".format(ecount)
+    except:
+
+        rslogger.exception("Exception running send_events_to_caliper job")
+        raise
+
+    # Check if we already have a task on the queue
+    try:
+        queued_caliper_task = db((db.scheduler_task.task_name == 'send_events_to_caliper') & (db.scheduler_task.status == 'QUEUED'))
+
+        if queued_caliper_task.isempty():
+            # Queue up a new task
+            rslogger.info("QUEUING up a send_events_to_caliper task")
+            scheduler.queue_task("send_events_to_caliper", period=30, repeats=0)
+        else:
+            rslogger.info("send_events_to_caliper task already QUEUED")
+    except Exception:
+        rslogger.info("Exception queuing up task, if there is no database table yet this is expected")
+        rslogger.exception("Exception running db query")
+
+
+def caliper_sender(actor, organization, edApp, resource):
+    is_openlrw = False
+    lrw_server = "http://lti.tools"
+    lrw_endpoint = lrw_server + "/caliper/event?key=python-caliper"
+
+    # Get these from your LRW (if necessary)
+
+    token = "python-caliper"
+
+    if (is_openlrw):
+        auth_data = {'username':'a601fd34-9f86-49ad-81dd-2b83dbee522b', 'password':'e4dff262-1583-4974-8d21-bff043db34d5'}
+        r = requests.post("{0}".format(lrw_access), json = auth_data, headers={'X-Requested-With': 'XMLHttpRequest'})
+        token = r.json().get('token')
+
+    the_config = caliper.HttpOptions(
+        host="{0}".format(lrw_endpoint),
+        auth_scheme='Bearer',
+        api_key=token)
+
+# Here you build your sensor; it will have one client in its registry,
+    # with the key 'default'.
+    the_sensor = caliper.build_sensor_from_config(
+            sensor_id = "{0}/test_caliper".format(lrw_server),
+            config_options = the_config )
+
+    # Here, you will have caliper entity representations of the various
+    # learning objects and entities in your wider system, and you provide
+    # them into the constructor for the event that has just happened.
+    #
+    # Note that you don't have to pass an action into the constructor because
+    # the NavigationEvent only supports one action, part of the
+    # Caliper base profile: caliper.constants.BASE_PROFILE_ACTIONS['NAVIGATED_TO']
+    #
+
+    the_event = caliper.events.NavigationEvent(
+            actor = actor,
+            edApp = edApp,
+            group = organization,
+            object = resource,
+            eventTime = datetime.now().isoformat(),
+            action = "NavigatedTo"
+            )
+
+    # Once built, you can use your sensor to describe one or more often used
+    # entities; suppose for example, you'll be sending a number of events
+    # that all have the same actor
+
+    ret = the_sensor.describe(the_event.actor)
+
+    # The return structure from the sensor will be a dictionary of lists: each
+    # item in the dictionary has a key corresponding to a client key,
+    # so ret['default'] fetches back the list of URIs of all the @ids of
+    # the fully described Caliper objects you have sent with that describe call.
+    #
+    # Now you can use this list with event sendings to send only the identifiers
+    # of already-described entities, and not their full forms:
+    #print(the_sensor.send(the_event, described_objects=ret['default'])
+
+    # You can also just send the event in its full form, with all fleshed out
+    # entities:
+    the_sensor.send(the_event)
+
+    rslogger.info("Event sent!")
+# Period set to 60 for testing, this should be configurable and a lot longer
+scheduler.queue_task(send_events_to_caliper, period=30, repeats=0)

@@ -32,8 +32,4 @@ cd ${BASEDIR}
 
 
 #TODO: Setup a password?
-python web2py.py --ip=0.0.0.0 --port=8000 --password='<recycle>' -K runestone --nogui -X &
-
-sleep 3
-echo "Starting scheduler jobs"
-python run_scheduler.py
+python web2py.py --ip=0.0.0.0 --port=8000 --password='<recycle>' -K runestone --nogui -X
