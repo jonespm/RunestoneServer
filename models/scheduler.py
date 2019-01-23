@@ -170,7 +170,7 @@ def send_events_to_caliper():
             return "No runs found yet, returning"
         # Reschedule this job to run again
         # Now that we have the latest run, Get all events from db.useinfo since last runtime based on timestamp
-        rslogger.info("completed_runs{}".format(completed_runs.start_time))
+        rslogger.info("completed_runs {}".format(completed_runs.start_time))
 
         events = db(
             (db.useinfo.timestamp > completed_runs.start_time)
@@ -220,38 +220,18 @@ def send_events_to_caliper():
         
         return "Event processing completed, processed {} events".format(ecount)
     except:
-
         rslogger.exception("Exception running send_events_to_caliper job")
         raise
 
-    # Check if we already have a task on the queue
-    try:
-        queued_caliper_task = db((db.scheduler_task.task_name == 'send_events_to_caliper') & (db.scheduler_task.status == 'QUEUED'))
-
-        if queued_caliper_task.isempty():
-            # Queue up a new task
-            rslogger.info("QUEUING up a send_events_to_caliper task")
-            scheduler.queue_task("send_events_to_caliper", period=30, repeats=0)
-        else:
-            rslogger.info("send_events_to_caliper task already QUEUED")
-    except Exception:
-        rslogger.info("Exception queuing up task, if there is no database table yet this is expected")
-        rslogger.exception("Exception running db query")
-
 
 def caliper_sender(actor, organization, edApp, resource):
-    is_openlrw = False
+    # TODO: lrw_server should come from environment variable
     lrw_server = "http://lti.tools"
+    # TODO: Endpoint should probably also come from environment variable
     lrw_endpoint = lrw_server + "/caliper/event?key=python-caliper"
 
-    # Get these from your LRW (if necessary)
-
+    # TODO: token should come from enviornment variable
     token = "python-caliper"
-
-    if (is_openlrw):
-        auth_data = {'username':'a601fd34-9f86-49ad-81dd-2b83dbee522b', 'password':'e4dff262-1583-4974-8d21-bff043db34d5'}
-        r = requests.post("{0}".format(lrw_access), json = auth_data, headers={'X-Requested-With': 'XMLHttpRequest'})
-        token = r.json().get('token')
 
     the_config = caliper.HttpOptions(
         host="{0}".format(lrw_endpoint),
@@ -302,5 +282,16 @@ def caliper_sender(actor, organization, edApp, resource):
     the_sensor.send(the_event)
 
     rslogger.info("Event sent!")
-# Period set to 60 for testing, this should be configurable and a lot longer
-scheduler.queue_task(send_events_to_caliper, period=30, repeats=0)
+
+# Check if we already have a task on the queue
+try:
+    queued_caliper_task = db((db.scheduler_task.task_name == 'send_events_to_caliper') & (db.scheduler_task.status == 'QUEUED'))
+
+    if queued_caliper_task.isempty():
+        # Queue up a new task
+        rslogger.info("QUEUING up a send_events_to_caliper task")
+        scheduler.queue_task("send_events_to_caliper", period=30, repeats=0)
+    else:
+        rslogger.info("send_events_to_caliper task already QUEUED")
+except Exception:
+    rslogger.info("Exception queuing up task, if there is no database table yet this is expected")

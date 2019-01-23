@@ -13,6 +13,9 @@ COPY rsmanage /tmp/rsmanage
 
 RUN pip install -r requirements.txt
 
+# Get caliper
+RUN git clone https://github.com/IMSGlobal/caliper-python/ && cd caliper-python && pip install .
+
 # Sets the local timezone of the docker image
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
