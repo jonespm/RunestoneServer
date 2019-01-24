@@ -181,31 +181,32 @@ def send_events_to_caliper():
             # Only send navigation events
             if event.event == "page":
                 nav_path = event.div_id.split('/')
+                actor = caliper.entities.Person(id=event.sid)
+                edApp = caliper.entities.SoftwareApplication(id="test_app_id", name="runestone")
+                organization = caliper.entities.Organization(id="test_org_id", name="test_org_name")
+                time = event.timestamp
+
                 try:
-                    actor = caliper.entities.Person(id=event.sid)
-                    edApp = caliper.entities.SoftwareApplication(id="test_app_id", name="runestone")
-                    organization = caliper.entities.Organization(id="test_org_id", name="test_org_name")
+                    # If resource is Page
                     resource = caliper.entities.Page(
                         id = event.div_id,
                         name = nav_path[5],
                         isPartOf = caliper.entities.Chapter(
-                            id = "test_chapter",
+                            id = nav_path[:5].join('/') + '/', # Use path as id
                             name = nav_path[4],
                             isPartOf = caliper.entities.Document(
-                                id = "test_doc",
+                                id = '/'.join(nav_path[:4]) + '/',
                                 name = nav_path[3],
                             )
                         )
                     )
                 except:
-                    actor = caliper.entities.Person(id=event.sid)
-                    edApp = caliper.entities.SoftwareApplication(id="test_app_id", name="runestone")
-                    organization = caliper.entities.Organization(id="test_org_id", name="test_org_name")
+                    # If resoure is Chapter
                     resource = caliper.entities.Chapter(
-                        id = "test_chapter",
+                        id = '/'.join(nav_path[:5]) + '/',
                         name = nav_path[4],
                         isPartOf = caliper.entities.Document(
-                            id = "test_doc",
+                            id = '/'.join(nav_path[:4]) + '/',
                             name = nav_path[3],
                         )
                     )
@@ -215,7 +216,8 @@ def send_events_to_caliper():
                     actor, 
                     organization, 
                     edApp, 
-                    resource)
+                    resource,
+                    time)
         # Loop though and process the events that we can and send them to caliper, also count the number of records we process
         
         return "Event processing completed, processed {} events".format(ecount)
@@ -224,7 +226,7 @@ def send_events_to_caliper():
         raise
 
 
-def caliper_sender(actor, organization, edApp, resource):
+def caliper_sender(actor, organization, edApp, resource, time):
     # TODO: lrw_server should come from environment variable
     lrw_server = "http://lti.tools"
     # TODO: Endpoint should probably also come from environment variable
@@ -258,7 +260,7 @@ def caliper_sender(actor, organization, edApp, resource):
             edApp = edApp,
             group = organization,
             object = resource,
-            eventTime = datetime.now().isoformat(),
+            eventTime = time.isoformat(),
             action = "NavigatedTo"
             )
 
